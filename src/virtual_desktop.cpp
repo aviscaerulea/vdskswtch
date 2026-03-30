@@ -13,7 +13,7 @@ HRESULT InitVirtualDesktopManager(IVirtualDesktopManagerInternal** ppManager)
 
     IServiceProvider* pServiceProvider = nullptr;
     hr = CoCreateInstance(
-        CLSID_ImmersiveShell, nullptr, CLSCTX_LOCAL_SERVER,
+        CLSID_ImmersiveShell, nullptr, CLSCTX_ALL,
         __uuidof(IServiceProvider), reinterpret_cast<void**>(&pServiceProvider));
     if (FAILED(hr)) {
         fprintf(stderr, "ImmersiveShell の取得失敗: 0x%08lX\n", hr);
@@ -67,8 +67,7 @@ HRESULT FindDesktopByName(
         HSTRING hName = nullptr;
         hr = pDesktop->GetName(&hName);
         if (SUCCEEDED(hr)) {
-            UINT32 len = 0;
-            const wchar_t* buf = WindowsGetStringRawBuffer(hName, &len);
+            const wchar_t* buf = WindowsGetStringRawBuffer(hName, nullptr);
             if (buf && name == buf) {
                 // 名前が一致したのでポインタを返す（Release は呼び出し元の責任）
                 *ppDesktop = pDesktop;
@@ -157,6 +156,9 @@ HRESULT RemoveDesktopByName(
 
     // 最初の（インデックス 0 の）デスクトップを fallback とする。
     // 削除対象が 0 番目の場合は 1 番目を fallback とする。
+    GUID idTarget = {};
+    pTarget->GetId(&idTarget);
+
     IVirtualDesktop* pFallback = nullptr;
     for (UINT i = 0; i < count; i++) {
         IVirtualDesktop* pCandidate = nullptr;
@@ -165,8 +167,7 @@ HRESULT RemoveDesktopByName(
             continue;
         }
 
-        GUID idTarget = {}, idCandidate = {};
-        pTarget->GetId(&idTarget);
+        GUID idCandidate = {};
         pCandidate->GetId(&idCandidate);
 
         if (!IsEqualGUID(idTarget, idCandidate)) {

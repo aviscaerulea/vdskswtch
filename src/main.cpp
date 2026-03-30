@@ -37,63 +37,59 @@ static int cmd_switch(const wchar_t* name)
         return 1;
     }
 
+    // 単一出口でリソースを解放するためのクリーンアップラムダ
+    auto cleanup = [&](int result) {
+        pManager->Release();
+        CoUninitialize();
+        return result;
+    };
+
     IVirtualDesktop* pTarget = nullptr;
     hr = FindDesktopByName(pManager, name, &pTarget);
     if (FAILED(hr)) {
-        pManager->Release();
-        CoUninitialize();
-        return 1;
+        return cleanup(1);
     }
 
+    bool created = false;
     if (!pTarget) {
-        // 対象デスクトップが存在しないため作成する
         hr = CreateNamedDesktop(pManager, name, &pTarget);
         if (FAILED(hr)) {
-            pManager->Release();
-            CoUninitialize();
-            return 1;
+            return cleanup(1);
         }
-
-        hr = SwitchToDesktop(pManager, pTarget);
-        pTarget->Release();
-        pManager->Release();
-        CoUninitialize();
-
-        if (FAILED(hr)) {
-            return 1;
-        }
-        printf("デスクトップ \"%ls\" を作成して切り替えました。\n", name);
-        return 0;
+        created = true;
     }
 
-    // 既に対象デスクトップが存在する場合は現在と比較する
-    IVirtualDesktop* pCurrent = nullptr;
-    hr = pManager->GetCurrentDesktop(&pCurrent);
-    if (SUCCEEDED(hr) && pCurrent) {
-        GUID idCurrent = {}, idTarget = {};
-        pCurrent->GetId(&idCurrent);
-        pTarget->GetId(&idTarget);
-        pCurrent->Release();
+    if (!created) {
+        IVirtualDesktop* pCurrent = nullptr;
+        hr = pManager->GetCurrentDesktop(&pCurrent);
+        if (SUCCEEDED(hr) && pCurrent) {
+            GUID idCurrent = {}, idTarget = {};
+            pCurrent->GetId(&idCurrent);
+            pTarget->GetId(&idTarget);
+            pCurrent->Release();
 
-        if (IsEqualGUID(idCurrent, idTarget)) {
-            printf("デスクトップ \"%ls\" は既にアクティブです。\n", name);
-            pTarget->Release();
-            pManager->Release();
-            CoUninitialize();
-            return 0;
+            if (IsEqualGUID(idCurrent, idTarget)) {
+                printf("デスクトップ \"%ls\" は既にアクティブです。\n", name);
+                pTarget->Release();
+                return cleanup(0);
+            }
         }
     }
 
     hr = SwitchToDesktop(pManager, pTarget);
     pTarget->Release();
-    pManager->Release();
-    CoUninitialize();
 
     if (FAILED(hr)) {
-        return 1;
+        return cleanup(1);
     }
-    printf("デスクトップ \"%ls\" に切り替えました。\n", name);
-    return 0;
+
+    if (created) {
+        printf("デスクトップ \"%ls\" を作成して切り替えました。\n", name);
+    }
+    else {
+        printf("デスクトップ \"%ls\" に切り替えました。\n", name);
+    }
+    return cleanup(0);
 }
 
 // close サブコマンド

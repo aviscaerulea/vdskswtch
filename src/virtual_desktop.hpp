@@ -54,6 +54,10 @@ IVirtualDesktopManagerInternal : public IUnknown {
     virtual HRESULT STDMETHODCALLTYPE GetDesktops(IObjectArray** ppDesktops) = 0;
     virtual HRESULT STDMETHODCALLTYPE GetAdjacentDesktop(IVirtualDesktop* pDesktopFrom, UINT uDirection, IVirtualDesktop** ppDesktop) = 0;
     virtual HRESULT STDMETHODCALLTYPE SwitchDesktop(IVirtualDesktop* pDesktop) = 0;
+
+    // Windows 11 24H2 で追加。SwitchDesktop と CreateDesktop の間に入る
+    virtual HRESULT STDMETHODCALLTYPE SwitchDesktopAndMoveForegroundView(IVirtualDesktop* pDesktop) = 0;
+
     virtual HRESULT STDMETHODCALLTYPE CreateDesktop(IVirtualDesktop** ppDesktop) = 0;
     virtual HRESULT STDMETHODCALLTYPE MoveDesktop(IVirtualDesktop* pDesktop, INT nIndex) = 0;
     virtual HRESULT STDMETHODCALLTYPE RemoveDesktop(IVirtualDesktop* pDesktopRemove, IVirtualDesktop* pDesktopFallback) = 0;
