@@ -5,3 +5,8 @@ out/
 .task/
 .serena/
 *.local.toml
+.idea/
+**/.env
+**/.credential
+**/*.exe
+**/*.local.*
