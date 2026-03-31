@@ -60,8 +60,15 @@ $outExe = "out\vdskswtch.exe"
 
 Write-Host "Building $outExe ($Config, v$Version)..."
 
+# リソースコンパイル（アイコン埋め込み）
+# rc.exe は src/ ディレクトリをカレントにして実行し、app.ico の相対パスを解決する
+Push-Location "src"
+& rc.exe /fo "..\out\app.res" "app.rc"
+Pop-Location
+if ($LASTEXITCODE -ne 0) { Write-Error "リソースコンパイル失敗 (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+
 $clArgs = $commonFlags + $configFlags + @("src\main.cpp", "src\virtual_desktop.cpp", "src\config.cpp", "src\toast.cpp") + `
-          @("/Fe:$outExe", "/Fo:out\\") + @("/link") + $linkFlags + $libs
+          @("out\app.res", "/Fe:$outExe", "/Fo:out\\") + @("/link") + $linkFlags + $libs
 
 & cl.exe @clArgs
 if ($LASTEXITCODE -ne 0) { Write-Error "ビルド失敗 (exit $LASTEXITCODE)"; exit $LASTEXITCODE }

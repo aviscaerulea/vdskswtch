@@ -1,0 +1,5 @@
+// vim: set ft=rc fenc=utf-8 ff=unix sw=4 ts=4 et :
+#include <windows.h>
+
+// IDI_ICON1（値 1）は Explorer が exe アイコンとして使用する最小 ID
+1 ICON "app.ico"
