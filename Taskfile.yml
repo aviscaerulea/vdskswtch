@@ -3,7 +3,7 @@ $schema: https://taskfile.dev/schema.json
 version: '3'
 
 vars:
-  APP_NAME: vdsktop
+  APP_NAME: vdskswtch
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' | grep -m1 . || echo "dev"
   ARCH: x64
@@ -21,7 +21,7 @@ tasks:
       - cmd: pwsh.exe -NoProfile -Command "if (Test-Path out) { Remove-Item -Recurse -Force out }"
 
   build:
-    desc: デバッグビルド（out/vdsktop.exe）
+    desc: デバッグビルド（out/vdskswtch.exe）
     cmds:
       - cmd: pwsh.exe -NoProfile -File build.ps1 -Version "{{.VERSION}}" -Config Debug
 

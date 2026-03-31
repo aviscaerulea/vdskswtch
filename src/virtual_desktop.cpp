@@ -1,23 +1,19 @@
 // vim: set ft=cpp fenc=utf-8 ff=unix sw=4 ts=4 et :
 #include "virtual_desktop.hpp"
+#include <algorithm>
 #include <cstdio>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 HRESULT InitVirtualDesktopManager(IVirtualDesktopManagerInternal** ppManager)
 {
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    // S_FALSE は既に初期化済みを表す正常状態
-    if (FAILED(hr)) {
-        fprintf(stderr, "CoInitializeEx 失敗: 0x%08lX\n", hr);
-        return hr;
-    }
-
     IServiceProvider* pServiceProvider = nullptr;
-    hr = CoCreateInstance(
+    HRESULT hr = CoCreateInstance(
         CLSID_ImmersiveShell, nullptr, CLSCTX_ALL,
         __uuidof(IServiceProvider), reinterpret_cast<void**>(&pServiceProvider));
     if (FAILED(hr)) {
         fprintf(stderr, "ImmersiveShell の取得失敗: 0x%08lX\n", hr);
-        CoUninitialize();
         return hr;
     }
 
@@ -29,7 +25,6 @@ HRESULT InitVirtualDesktopManager(IVirtualDesktopManagerInternal** ppManager)
 
     if (FAILED(hr)) {
         fprintf(stderr, "IVirtualDesktopManagerInternal の取得失敗: 0x%08lX\n", hr);
-        CoUninitialize();
         return hr;
     }
 
@@ -69,7 +64,6 @@ HRESULT FindDesktopByName(
         if (SUCCEEDED(hr)) {
             const wchar_t* buf = WindowsGetStringRawBuffer(hName, nullptr);
             if (buf && name == buf) {
-                // 名前が一致したのでポインタを返す（Release は呼び出し元の責任）
                 *ppDesktop = pDesktop;
                 WindowsDeleteString(hName);
                 pArray->Release();
@@ -128,36 +122,22 @@ HRESULT SwitchToDesktop(
     return hr;
 }
 
-HRESULT RemoveDesktopByName(
+HRESULT RemoveDesktop(
     IVirtualDesktopManagerInternal* pManager,
-    const std::wstring& name)
+    IVirtualDesktop* pDesktop)
 {
-    // 削除対象のデスクトップを検索
-    IVirtualDesktop* pTarget = nullptr;
-    HRESULT hr = FindDesktopByName(pManager, name, &pTarget);
-    if (FAILED(hr)) {
-        return hr;
-    }
-    if (!pTarget) {
-        fprintf(stderr, "デスクトップ \"%ls\" が見つからない\n", name.c_str());
-        return E_FAIL;
-    }
-
-    // fallback（最初のデスクトップ）を取得
     IObjectArray* pArray = nullptr;
-    hr = pManager->GetDesktops(&pArray);
+    HRESULT hr = pManager->GetDesktops(&pArray);
     if (FAILED(hr)) {
-        pTarget->Release();
         return hr;
     }
 
     UINT count = 0;
     pArray->GetCount(&count);
 
-    // 最初の（インデックス 0 の）デスクトップを fallback とする。
-    // 削除対象が 0 番目の場合は 1 番目を fallback とする。
+    // 削除対象が 0 番目の場合は 1 番目を、それ以外は 0 番目を fallback とする
     GUID idTarget = {};
-    pTarget->GetId(&idTarget);
+    pDesktop->GetId(&idTarget);
 
     IVirtualDesktop* pFallback = nullptr;
     for (UINT i = 0; i < count; i++) {
@@ -181,16 +161,145 @@ HRESULT RemoveDesktopByName(
     if (!pFallback) {
         // デスクトップが 1 つしかない場合は削除不可
         fprintf(stderr, "削除できるデスクトップが他にない\n");
-        pTarget->Release();
         return E_FAIL;
     }
 
-    hr = pManager->RemoveDesktop(pTarget, pFallback);
-    pTarget->Release();
+    hr = pManager->RemoveDesktop(pDesktop, pFallback);
     pFallback->Release();
 
     if (FAILED(hr)) {
         fprintf(stderr, "RemoveDesktop 失敗: 0x%08lX\n", hr);
     }
     return hr;
+}
+
+// EnumWindows コールバックのコンテキスト
+//
+// STA 再入リスクを避けるため、コールバック内で COM 呼び出しをしない。
+// 対象ウィンドウの収集と COM 操作（PinView）を 2 段階に分けて処理する。
+struct CollectContext {
+    const std::vector<std::wstring>* pin_apps;
+    // PID → exe ベース名キャッシュ（空文字列 = 取得失敗または対象外）
+    std::unordered_map<DWORD, std::wstring> pid_cache;
+    // 照合済みウィンドウ（Phase 2 で COM 操作を行う）
+    std::vector<std::pair<HWND, std::wstring>> matched;
+};
+
+// EnumWindows コールバック（Phase 1：ウィンドウ収集のみ、COM 呼び出しなし）
+static BOOL CALLBACK CollectWindowsProc(HWND hwnd, LPARAM lParam)
+{
+    // 不可視ウィンドウとツールウィンドウはスキップする
+    if (!IsWindowVisible(hwnd)) {
+        return TRUE;
+    }
+    DWORD exStyle = static_cast<DWORD>(GetWindowLongW(hwnd, GWL_EXSTYLE));
+    if (exStyle & WS_EX_TOOLWINDOW) {
+        return TRUE;
+    }
+
+    auto* ctx = reinterpret_cast<CollectContext*>(lParam);
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == 0) {
+        return TRUE;
+    }
+
+    // PID キャッシュから exe ベース名を取得（同一 PID は OS 問い合わせを1回に抑える）
+    auto [it, inserted] = ctx->pid_cache.try_emplace(pid);
+    if (inserted) {
+        HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (hProc) {
+            wchar_t exePath[MAX_PATH] = {};
+            DWORD len = MAX_PATH;
+            if (QueryFullProcessImageNameW(hProc, 0, exePath, &len)) {
+                const wchar_t* p = wcsrchr(exePath, L'\\');
+                it->second = p ? p + 1 : exePath;
+            }
+            CloseHandle(hProc);
+        }
+    }
+
+    const std::wstring& exeBasename = it->second;
+    if (exeBasename.empty()) {
+        return TRUE;
+    }
+
+    // pin_apps リストと大文字小文字不問で照合
+    bool matched = std::any_of(ctx->pin_apps->begin(), ctx->pin_apps->end(),
+        [&](const auto& t) { return _wcsicmp(exeBasename.c_str(), t.c_str()) == 0; });
+    if (matched) {
+        ctx->matched.emplace_back(hwnd, exeBasename);
+    }
+    return TRUE;
+}
+
+HRESULT PinAppWindows(const std::vector<std::wstring>& pin_apps)
+{
+    if (pin_apps.empty()) {
+        return S_OK;
+    }
+
+    IServiceProvider* pServiceProvider = nullptr;
+    HRESULT hr = CoCreateInstance(
+        CLSID_ImmersiveShell, nullptr, CLSCTX_ALL,
+        __uuidof(IServiceProvider), reinterpret_cast<void**>(&pServiceProvider));
+    if (FAILED(hr)) {
+        fprintf(stderr, "PinAppWindows: ImmersiveShell の取得失敗: 0x%08lX\n", hr);
+        return hr;
+    }
+
+    IApplicationViewCollection* pViewCollection = nullptr;
+    hr = pServiceProvider->QueryService(
+        CLSID_ApplicationViewCollection,
+        __uuidof(IApplicationViewCollection),
+        reinterpret_cast<void**>(&pViewCollection));
+    if (FAILED(hr)) {
+        fprintf(stderr, "PinAppWindows: IApplicationViewCollection の取得失敗: 0x%08lX\n", hr);
+        pServiceProvider->Release();
+        return hr;
+    }
+
+    IVirtualDesktopPinnedApps* pPinnedApps = nullptr;
+    hr = pServiceProvider->QueryService(
+        CLSID_VirtualDesktopPinnedApps,
+        __uuidof(IVirtualDesktopPinnedApps),
+        reinterpret_cast<void**>(&pPinnedApps));
+    pServiceProvider->Release();
+
+    if (FAILED(hr)) {
+        fprintf(stderr, "PinAppWindows: IVirtualDesktopPinnedApps の取得失敗: 0x%08lX\n", hr);
+        pViewCollection->Release();
+        return hr;
+    }
+
+    // Phase 1: EnumWindows でウィンドウを収集（COM 呼び出しなし）
+    CollectContext ctx = { &pin_apps };
+    if (!EnumWindows(CollectWindowsProc, reinterpret_cast<LPARAM>(&ctx))) {
+        fprintf(stderr, "EnumWindows 失敗: 0x%08lX\n", GetLastError());
+    }
+
+    // Phase 2: 収集したウィンドウに対して COM 操作（PinView）を実行
+    for (const auto& [hwnd, exeBasename] : ctx.matched) {
+        IApplicationView* pView = nullptr;
+        HRESULT hr2 = pViewCollection->GetViewForHwnd(hwnd, &pView);
+        if (FAILED(hr2) || !pView) {
+            continue;
+        }
+
+        // 既にピン留め済みの場合はスキップ
+        BOOL pinned = FALSE;
+        hr2 = pPinnedApps->IsViewPinned(pView, &pinned);
+        if (SUCCEEDED(hr2) && !pinned) {
+            hr2 = pPinnedApps->PinView(pView);
+            if (FAILED(hr2)) {
+                fprintf(stderr, "PinView 失敗 (%ls): 0x%08lX\n", exeBasename.c_str(), hr2);
+            }
+        }
+        pView->Release();
+    }
+
+    pPinnedApps->Release();
+    pViewCollection->Release();
+    return S_OK;
 }

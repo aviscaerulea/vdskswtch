@@ -8,7 +8,7 @@
 ## ビルド方法
 
 ```bash
-task build    # デバッグビルド（out/vdsktop.exe）
+task build    # デバッグビルド（out/vdskswtch.exe）
 task release  # リリースビルド + zip
 task clean    # out/ 削除
 ```
@@ -16,11 +16,12 @@ task clean    # out/ 削除
 ## テスト方法
 
 ```bash
-out/vdsktop.exe               # Meeting デスクトップに切り替え（なければ作成）
-out/vdsktop.exe switch        # 同上
-out/vdsktop.exe switch Work   # Work デスクトップに切り替え
-out/vdsktop.exe close         # Meeting デスクトップを削除
-out/vdsktop.exe version       # バージョン確認
+out/vdskswtch.exe               # Meeting デスクトップに切り替え（なければ作成）
+out/vdskswtch.exe switch        # 同上
+out/vdskswtch.exe switch Work   # Work デスクトップに切り替え
+out/vdskswtch.exe close         # Meeting デスクトップを削除
+out/vdskswtch.exe version       # バージョン確認
+# 排他チェック確認: 同一コマンドを 2 つのターミナルで同時実行し、2 つ目が Toast を表示して終了することを確認
 ```
 
 ## 実装上の注意点
@@ -43,9 +44,9 @@ Windows Update により vtable レイアウトや GUID が変更される可能
 
 ### 設定ファイル
 
-- `vdsktop.toml` を exe と同じディレクトリに配置する
-- `vdsktop.local.toml` で上書き可能（`.gitignore` で除外済み）
-- 設定項目：`pre_exec`（switch 前）、`post_exec`（switch 後）、`close_exec`（close 時）
+- `vdskswtch.toml` を exe と同じディレクトリに配置する
+- `vdskswtch.local.toml` で上書き可能（`.gitignore` で除外済み）
+- 設定項目：`pre_exec`（switch 前）、`post_exec`（switch 後）、`close_exec`（close 時）、`pin_apps`（ピン留め対象プロセス）
 
 ## 参考
 

@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-// vdsktop 設定
-// vdsktop.toml → vdsktop.local.toml の順に読み込み、後者で上書きする
+// vdskswtch 設定
+// vdskswtch.toml → vdskswtch.local.toml の順に読み込み、後者で上書きする
 struct Config {
     // switch 前に実行するコマンド一覧
     std::vector<std::wstring> pre_exec;
@@ -15,12 +15,15 @@ struct Config {
 
     // close 時（デスクトップ削除前）に実行するコマンド一覧
     std::vector<std::wstring> close_exec;
+
+    // 全仮想デスクトップにピン留めするプロセスの実行ファイル名一覧
+    std::vector<std::wstring> pin_apps;
 };
 
 // exe と同じディレクトリから設定を読み込む
 //
-// vdsktop.toml が存在しない場合は空の Config を返す。
-// vdsktop.local.toml が存在すれば上書きマージする。
+// vdskswtch.toml が存在しない場合は空の Config を返す。
+// vdskswtch.local.toml が存在すれば上書きマージする。
 // パースエラー時は stderr に警告を出力し、読み込めた範囲の値を返す。
 Config LoadConfig();
 

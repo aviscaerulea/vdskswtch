@@ -24,6 +24,9 @@ static fs::path GetExeDir()
     return fs::path(buf).parent_path();
 }
 
+// UTF-8 文字列をワイド文字列に変換する
+//
+// 変換失敗または空文字列の場合は空の wstring を返す
 static std::wstring Utf8ToWide(const std::string& utf8)
 {
     if (utf8.empty()) {
@@ -76,6 +79,7 @@ static void MergeFromFile(const fs::path& path, Config& cfg)
     if (tbl.contains("pre_exec"))   cfg.pre_exec   = ReadStringArray(tbl, "pre_exec");
     if (tbl.contains("post_exec"))  cfg.post_exec  = ReadStringArray(tbl, "post_exec");
     if (tbl.contains("close_exec")) cfg.close_exec = ReadStringArray(tbl, "close_exec");
+    if (tbl.contains("pin_apps"))   cfg.pin_apps   = ReadStringArray(tbl, "pin_apps");
 }
 
 Config LoadConfig()
@@ -83,8 +87,8 @@ Config LoadConfig()
     Config cfg;
     fs::path dir = GetExeDir();
 
-    MergeFromFile(dir / L"vdsktop.toml", cfg);
-    MergeFromFile(dir / L"vdsktop.local.toml", cfg);
+    MergeFromFile(dir / L"vdskswtch.toml", cfg);
+    MergeFromFile(dir / L"vdskswtch.local.toml", cfg);
 
     return cfg;
 }

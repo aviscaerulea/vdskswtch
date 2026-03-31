@@ -5,6 +5,7 @@
 #include <shobjidl_core.h>
 #include <winstring.h>
 #include <string>
+#include <vector>
 
 // ==================================================
 // Windows 11 24H2（ビルド 26100 以降）向け
@@ -71,15 +72,63 @@ IVirtualDesktopManagerInternal : public IUnknown {
     virtual HRESULT STDMETHODCALLTYPE SetDesktopName(IVirtualDesktop* pDesktop, HSTRING name) = 0;
 };
 
+// CLSID_VirtualDesktopPinnedApps
+// IServiceProvider::QueryService で IVirtualDesktopPinnedApps を取得するための CLSID
+static const CLSID CLSID_VirtualDesktopPinnedApps = {
+    0xB5A399E7, 0x1C87, 0x46B8, { 0x88, 0xE9, 0xFC, 0x57, 0x47, 0xB1, 0x71, 0xBD }
+};
+
+// CLSID_ApplicationViewCollection
+// IServiceProvider::QueryService で IApplicationViewCollection を取得するための CLSID
+static const CLSID CLSID_ApplicationViewCollection = {
+    0x1841C6D7, 0x4F9D, 0x42C0, { 0xAF, 0x41, 0x87, 0x47, 0x53, 0x8F, 0x10, 0xE5 }
+};
+
+// IApplicationView（IID: 372E1D3B-38D6-45A8-956B-0A6B69186A21）
+// 1 つのアプリケーションウィンドウビューを表す COM インターフェース
+// PinView に渡すオペーク型として使用する
+MIDL_INTERFACE("372E1D3B-38D6-45A8-956B-0A6B69186A21")
+IApplicationView : public IUnknown {
+};
+
+// IApplicationViewCollection（IID: 1841C6D7-4F9D-42C0-AF41-8747538F10E5）
+// HWND から IApplicationView を取得するための COM インターフェース
+//
+// vtable 順序は Windows 11 24H2 専用。
+// メソッド順序がビルドにより変わることがあるため、OS バージョン確認を推奨する。
+MIDL_INTERFACE("1841C6D7-4F9D-42C0-AF41-8747538F10E5")
+IApplicationViewCollection : public IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE GetViews(IObjectArray**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetViewsByZOrder(IObjectArray**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetViewsByAppUserModelId(PCWSTR, IObjectArray**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetViewForHwnd(HWND hwnd, IApplicationView** ppView) = 0;
+};
+
+// IVirtualDesktopPinnedApps（IID: 4CE81583-1E4C-4632-A621-07A53543148F）
+// ウィンドウを全仮想デスクトップにピン留め/解除する COM インターフェース
+//
+// vtable 順序は Windows 11 24H2 専用。
+// メソッド順序がビルドにより変わることがあるため、OS バージョン確認を推奨する。
+MIDL_INTERFACE("4CE81583-1E4C-4632-A621-07A53543148F")
+IVirtualDesktopPinnedApps : public IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE IsViewPinned(IApplicationView* pView, BOOL* pfPinned) = 0;
+    virtual HRESULT STDMETHODCALLTYPE PinView(IApplicationView* pView) = 0;
+    virtual HRESULT STDMETHODCALLTYPE UnpinView(IApplicationView* pView) = 0;
+    virtual HRESULT STDMETHODCALLTYPE IsAppIdPinned(PCWSTR appId, BOOL* pfPinned) = 0;
+    virtual HRESULT STDMETHODCALLTYPE PinAppID(PCWSTR appId) = 0;
+    virtual HRESULT STDMETHODCALLTYPE UnpinAppID(PCWSTR appId) = 0;
+};
+
 // ==================================================
 // 操作関数
 // ==================================================
 
-// COM を初期化し IVirtualDesktopManagerInternal を取得する
+// IVirtualDesktopManagerInternal を取得する
 //
-// 成功時: S_OK を返し *ppManager に取得したポインタを格納する
-// 失敗時: HRESULT エラーコードを返す
-// 呼び出し元は CoUninitialize() と ppManager->Release() を呼ぶ責任を持つ
+// COM は呼び出し元が STA で初期化済みであること。
+// 成功時: S_OK を返し *ppManager に取得したポインタを格納する。
+// 失敗時: HRESULT エラーコードを返す。
+// 呼び出し元は ppManager->Release() を呼ぶ責任を持つ。
 HRESULT InitVirtualDesktopManager(IVirtualDesktopManagerInternal** ppManager);
 
 // 名前が一致する仮想デスクトップを検索する
@@ -106,10 +155,19 @@ HRESULT SwitchToDesktop(
     IVirtualDesktopManagerInternal* pManager,
     IVirtualDesktop* pDesktop);
 
-// 名前が一致する仮想デスクトップを削除する
+// 指定した仮想デスクトップを削除する
 //
-// 見つからない場合: E_FAIL を返す
+// デスクトップが 1 つしかない場合: E_FAIL を返す
 // 削除時は最初の（メインの）デスクトップを fallback に設定する
-HRESULT RemoveDesktopByName(
+// pDesktop の Release は呼び出し元の責任
+HRESULT RemoveDesktop(
     IVirtualDesktopManagerInternal* pManager,
-    const std::wstring& name);
+    IVirtualDesktop* pDesktop);
+
+// 指定した exe 名のプロセスのウィンドウを全仮想デスクトップにピン留めする
+//
+// EnumWindows で各ウィンドウの所属プロセスを検査し、
+// pin_apps に一致するプロセスのウィンドウを IVirtualDesktopPinnedApps::PinView でピン留めする。
+// 既にピン留め済みのウィンドウはスキップする。失敗したウィンドウは警告を出力して継続する。
+// COM は呼び出し元が初期化済みである前提で動作する。
+HRESULT PinAppWindows(const std::vector<std::wstring>& pin_apps);

@@ -1,7 +1,7 @@
 # vim: set ft=ps1 fenc=utf-8 ff=unix sw=4 ts=4 et :
 # ==================================================
-# vdsktop ビルドスクリプト
-# MSVC cl.exe で src/*.cpp をコンパイルし out/vdsktop.exe を生成する
+# vdskswtch ビルドスクリプト
+# MSVC cl.exe で src/*.cpp をコンパイルし out/vdskswtch.exe を生成する
 #
 # 引数:
 #   -Version  : バージョン文字列（例: 1.0.0）
@@ -45,18 +45,22 @@ $configFlags = if ($Config -eq "Release") { $releaseFlags } else { $debugFlags }
 # リンクライブラリ
 $libs = @(
     "ole32.lib",        # COM 基盤（CoCreateInstance 等）
-    "runtimeobject.lib" # Windows Runtime 文字列 API（WindowsCreateString 等）
+    "runtimeobject.lib", # Windows Runtime 文字列 API（WindowsCreateString 等）
+    "user32.lib",       # ウィンドウ列挙 API（EnumWindows、IsWindowVisible 等）
+    "windowsapp.lib",   # C++/WinRT（Toast 通知）
+    "shell32.lib",      # IShellLinkW（ショートカット作成）
+    "propsys.lib"       # IPropertyStore（AUMID 付与）
 )
 
 # リンクオプション
 $linkFlags = @("/SUBSYSTEM:CONSOLE")
 if ($Config -eq "Debug") { $linkFlags += "/DEBUG" }
 
-$outExe = "out\vdsktop.exe"
+$outExe = "out\vdskswtch.exe"
 
 Write-Host "Building $outExe ($Config, v$Version)..."
 
-$clArgs = $commonFlags + $configFlags + @("src\main.cpp", "src\virtual_desktop.cpp", "src\config.cpp") + `
+$clArgs = $commonFlags + $configFlags + @("src\main.cpp", "src\virtual_desktop.cpp", "src\config.cpp", "src\toast.cpp") + `
           @("/Fe:$outExe", "/Fo:out\\") + @("/link") + $linkFlags + $libs
 
 & cl.exe @clArgs

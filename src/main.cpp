@@ -1,6 +1,7 @@
 // vim: set ft=cpp fenc=utf-8 ff=unix sw=4 ts=4 et :
 #include "virtual_desktop.hpp"
 #include "config.hpp"
+#include "toast.hpp"
 #include <cstdio>
 #include <cstring>
 
@@ -11,17 +12,24 @@
 // ミーティング用デスクトップのデフォルト名
 static const wchar_t* DEFAULT_DESKTOP_NAME = L"Meeting";
 
+// プロセス排他用 Named Mutex 名
+static const wchar_t* MUTEX_NAME = L"Global\\vdskswtch_single_instance";
+
+// Toast 通知表示後の待機時間（ms）
+// プロセス終了前に OS が通知を表示する時間を確保する
+static const DWORD TOAST_DISPLAY_WAIT_MS = 500;
+
 static void print_usage()
 {
     fprintf(stderr,
-        "vdsktop v" APP_VERSION " - Windows 11 Virtual Desktop Switcher\n"
+        "vdskswtch v" APP_VERSION " - Windows 11 Virtual Desktop Switcher\n"
         "\n"
         "Usage:\n"
-        "  vdsktop               ミーティング用デスクトップに切り替え（switch のエイリアス）\n"
-        "  vdsktop switch [name] ミーティング用デスクトップに切り替え（なければ作成）\n"
-        "  vdsktop close  [name] ミーティング用デスクトップを削除してメインに戻る\n"
-        "  vdsktop version       バージョンを表示\n"
-        "  vdsktop help          このヘルプを表示\n"
+        "  vdskswtch               ミーティング用デスクトップに切り替え（switch のエイリアス）\n"
+        "  vdskswtch switch [name] ミーティング用デスクトップに切り替え（なければ作成）\n"
+        "  vdskswtch close  [name] ミーティング用デスクトップを削除してメインに戻る\n"
+        "  vdskswtch version       バージョンを表示\n"
+        "  vdskswtch help          このヘルプを表示\n"
         "\n"
         "デスクトップ名のデフォルト: Meeting\n");
 }
@@ -38,10 +46,8 @@ static int cmd_switch(const wchar_t* name, const Config& cfg)
         return 1;
     }
 
-    // 単一出口でリソースを解放するためのクリーンアップラムダ
     auto cleanup = [&](int result) {
         pManager->Release();
-        CoUninitialize();
         return result;
     };
 
@@ -65,11 +71,11 @@ static int cmd_switch(const wchar_t* name, const Config& cfg)
         hr = pManager->GetCurrentDesktop(&pCurrent);
         if (SUCCEEDED(hr) && pCurrent) {
             GUID idCurrent = {}, idTarget = {};
-            pCurrent->GetId(&idCurrent);
-            pTarget->GetId(&idTarget);
+            const bool ok = SUCCEEDED(pCurrent->GetId(&idCurrent))
+                         && SUCCEEDED(pTarget->GetId(&idTarget));
             pCurrent->Release();
 
-            if (IsEqualGUID(idCurrent, idTarget)) {
+            if (ok && IsEqualGUID(idCurrent, idTarget)) {
                 printf("デスクトップ \"%ls\" は既にアクティブです。\n", name);
                 pTarget->Release();
                 return cleanup(0);
@@ -93,6 +99,8 @@ static int cmd_switch(const wchar_t* name, const Config& cfg)
         printf("デスクトップ \"%ls\" に切り替えました。\n", name);
     }
 
+    PinAppWindows(cfg.pin_apps);
+
     ExecCommands(cfg.post_exec);
 
     return cleanup(0);
@@ -113,7 +121,6 @@ static int cmd_close(const wchar_t* name, const Config& cfg)
 
     auto cleanup = [&](int result) {
         pManager->Release();
-        CoUninitialize();
         return result;
     };
 
@@ -127,11 +134,11 @@ static int cmd_close(const wchar_t* name, const Config& cfg)
         fprintf(stderr, "デスクトップ \"%ls\" が見つかりません。\n", name);
         return cleanup(1);
     }
-    pTarget->Release();
 
     ExecCommands(cfg.close_exec);
 
-    hr = RemoveDesktopByName(pManager, name);
+    hr = RemoveDesktop(pManager, pTarget);
+    pTarget->Release();
     if (FAILED(hr)) {
         return cleanup(1);
     }
@@ -141,37 +148,71 @@ static int cmd_close(const wchar_t* name, const Config& cfg)
 
 int wmain(int argc, wchar_t* argv[])
 {
-    // 引数なし: switch のエイリアス
+    // version/help は排他制御・COM 初期化不要
+    if (argc >= 2) {
+        const wchar_t* cmd = argv[1];
+
+        if (wcscmp(cmd, L"version") == 0) {
+            printf("vdskswtch v" APP_VERSION "\n");
+            return 0;
+        }
+        if (wcscmp(cmd, L"help") == 0 || wcscmp(cmd, L"--help") == 0 || wcscmp(cmd, L"-h") == 0) {
+            print_usage();
+            return 0;
+        }
+    }
+
+    // COM 初期化（STA、プロセス全体で一度だけ）
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(hr)) {
+        fprintf(stderr, "CoInitializeEx 失敗: 0x%08lX\n", hr);
+        return 1;
+    }
+
+    // Toast 通知の基盤初期化（AUMID 設定 + ショートカット作成）
+    InitToast();
+
+    // プロセス排他チェック
+    HANDLE hMutex = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
+    if (!hMutex) {
+        fprintf(stderr, "Mutex の作成に失敗しました: 0x%08lX\n", GetLastError());
+        CoUninitialize();
+        return 1;
+    }
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        ShowToast(L"vdskswtch は既に実行中です。");
+        Sleep(TOAST_DISPLAY_WAIT_MS);
+        CloseHandle(hMutex);
+        CoUninitialize();
+        return 1;
+    }
+
+    int result = 1;
+
     if (argc < 2) {
         Config cfg = LoadConfig();
-        return cmd_switch(DEFAULT_DESKTOP_NAME, cfg);
+        result = cmd_switch(DEFAULT_DESKTOP_NAME, cfg);
+    }
+    else {
+        const wchar_t* cmd = argv[1];
+
+        if (wcscmp(cmd, L"switch") == 0) {
+            Config cfg = LoadConfig();
+            const wchar_t* name = (argc >= 3) ? argv[2] : DEFAULT_DESKTOP_NAME;
+            result = cmd_switch(name, cfg);
+        }
+        else if (wcscmp(cmd, L"close") == 0) {
+            Config cfg = LoadConfig();
+            const wchar_t* name = (argc >= 3) ? argv[2] : DEFAULT_DESKTOP_NAME;
+            result = cmd_close(name, cfg);
+        }
+        else {
+            fprintf(stderr, "不明なコマンドです: %ls\n\n", cmd);
+            print_usage();
+        }
     }
 
-    const wchar_t* cmd = argv[1];
-
-    if (wcscmp(cmd, L"switch") == 0) {
-        Config cfg = LoadConfig();
-        const wchar_t* name = (argc >= 3) ? argv[2] : DEFAULT_DESKTOP_NAME;
-        return cmd_switch(name, cfg);
-    }
-
-    if (wcscmp(cmd, L"close") == 0) {
-        Config cfg = LoadConfig();
-        const wchar_t* name = (argc >= 3) ? argv[2] : DEFAULT_DESKTOP_NAME;
-        return cmd_close(name, cfg);
-    }
-
-    if (wcscmp(cmd, L"version") == 0) {
-        printf("vdsktop v" APP_VERSION "\n");
-        return 0;
-    }
-
-    if (wcscmp(cmd, L"help") == 0 || wcscmp(cmd, L"--help") == 0 || wcscmp(cmd, L"-h") == 0) {
-        print_usage();
-        return 0;
-    }
-
-    fprintf(stderr, "不明なコマンドです: %ls\n\n", cmd);
-    print_usage();
-    return 1;
+    CloseHandle(hMutex);
+    CoUninitialize();
+    return result;
 }

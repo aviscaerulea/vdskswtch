@@ -1,4 +1,4 @@
-# vdsktop
+# vdskswtch
 
 Windows 11 の仮想デスクトップを切り替える CLI ツール。
 
@@ -12,17 +12,17 @@ Windows 11 の仮想デスクトップを切り替える CLI ツール。
 
 ## インストール
 
-[Releases](https://github.com/your-repo/vdsktop/releases) から最新の zip を取得し、
-`vdsktop.exe` をパスの通ったディレクトリに配置する。
+[Releases](https://github.com/your-repo/vdskswtch/releases) から最新の zip を取得し、
+`vdskswtch.exe` をパスの通ったディレクトリに配置する。
 
 ## 使い方
 
 ```
-vdsktop               ミーティング用デスクトップに切り替え（switch のエイリアス）
-vdsktop switch [name] ミーティング用デスクトップに切り替え（なければ作成）
-vdsktop close  [name] ミーティング用デスクトップを削除してメインに戻る
-vdsktop version       バージョンを表示
-vdsktop help          ヘルプを表示
+vdskswtch               ミーティング用デスクトップに切り替え（switch のエイリアス）
+vdskswtch switch [name] ミーティング用デスクトップに切り替え（なければ作成）
+vdskswtch close  [name] ミーティング用デスクトップを削除してメインに戻る
+vdskswtch version       バージョンを表示
+vdskswtch help          ヘルプを表示
 ```
 
 デスクトップ名のデフォルトは `Meeting`。`name` で任意の名前を指定できる。
@@ -31,21 +31,21 @@ vdsktop help          ヘルプを表示
 
 ```bash
 # ミーティング用デスクトップに切り替え（なければ "Meeting" という名前で作成）
-vdsktop
+vdskswtch
 
 # 同上（明示的に switch コマンドを使う場合）
-vdsktop switch
+vdskswtch switch
 
 # "Work" という名前のデスクトップに切り替え（なければ作成）
-vdsktop switch Work
+vdskswtch switch Work
 
 # ミーティング用デスクトップを削除してメインに戻る
-vdsktop close
+vdskswtch close
 ```
 
 ## 設定ファイル
 
-`vdsktop.exe` と同じディレクトリに `vdsktop.toml` を配置すると、
+`vdskswtch.exe` と同じディレクトリに `vdskswtch.toml` を配置すると、
 デスクトップ切り替え時にスクリプトを自動実行できる。
 
 ```toml
@@ -57,11 +57,15 @@ post_exec = ["C:\\scripts\\start-meeting.bat"]
 
 # close 時（デスクトップ削除前）に実行するコマンド
 close_exec = ["C:\\scripts\\end-meeting.bat"]
+
+# 全仮想デスクトップにピン留めするプロセス名（大文字小文字不問）
+# 注意：ウィンドウ単位でのピン留めのため、アプリ再起動後は新しいウィンドウのピン留めが解除される
+pin_apps = ["Teams.exe", "Zoom.exe"]
 ```
 
-`vdsktop.local.toml` を配置すると `vdsktop.toml` の設定を上書きできる。
+`vdskswtch.local.toml` を配置すると `vdskswtch.toml` の設定を上書きできる。
 
 ## 注意事項
 
-undocumented な Windows 内部 API を使用しているため、
-Windows Update により動作しなくなる場合がある。
+- undocumented な Windows 内部 API を使用しているため、Windows Update により動作しなくなる場合がある。
+- switch/close コマンドは同時に 1 つのインスタンスのみ実行できる。既に実行中の場合は Toast 通知を表示して終了する。
