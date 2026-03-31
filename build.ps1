@@ -33,7 +33,8 @@ $commonFlags = @(
     "/utf-8", "/EHsc", "/std:c++17",
     "/W3",
     "/DAPP_VERSION=`"$Version`"",
-    "/D_WIN32_WINNT=0x0A00"  # Windows 10/11 対象
+    "/D_WIN32_WINNT=0x0A00", # Windows 10/11 対象
+    "/Iinclude"              # toml++ ヘッダ
 )
 
 $debugFlags   = @("/Zi", "/Od", "/DDEBUG", "/MTd")
@@ -55,7 +56,7 @@ $outExe = "out\vdsktop.exe"
 
 Write-Host "Building $outExe ($Config, v$Version)..."
 
-$clArgs = $commonFlags + $configFlags + @("src\main.cpp", "src\virtual_desktop.cpp") + `
+$clArgs = $commonFlags + $configFlags + @("src\main.cpp", "src\virtual_desktop.cpp", "src\config.cpp") + `
           @("/Fe:$outExe", "/Fo:out\\") + @("/link") + $linkFlags + $libs
 
 & cl.exe @clArgs

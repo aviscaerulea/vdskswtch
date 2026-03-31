@@ -39,6 +39,13 @@ Windows Update により vtable レイアウトや GUID が変更される可能
 - HSTRING 操作（`WindowsCreateString` 等）に `runtimeobject.lib` が必要
 - COM 初期化には `CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)` を使用
 - `wmain` エントリポイントを使用（Unicode 引数対応）
+- TOML パーサーに toml++（`include/toml.hpp`）を使用
+
+### 設定ファイル
+
+- `vdsktop.toml` を exe と同じディレクトリに配置する
+- `vdsktop.local.toml` で上書き可能（`.gitignore` で除外済み）
+- 設定項目：`pre_exec`（switch 前）、`post_exec`（switch 後）、`close_exec`（close 時）
 
 ## 参考
 

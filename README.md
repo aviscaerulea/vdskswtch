@@ -43,6 +43,24 @@ vdsktop switch Work
 vdsktop close
 ```
 
+## 設定ファイル
+
+`vdsktop.exe` と同じディレクトリに `vdsktop.toml` を配置すると、
+デスクトップ切り替え時にスクリプトを自動実行できる。
+
+```toml
+# switch 前に実行するコマンド
+pre_exec = []
+
+# switch 後に実行するコマンド
+post_exec = ["C:\\scripts\\start-meeting.bat"]
+
+# close 時（デスクトップ削除前）に実行するコマンド
+close_exec = ["C:\\scripts\\end-meeting.bat"]
+```
+
+`vdsktop.local.toml` を配置すると `vdsktop.toml` の設定を上書きできる。
+
 ## 注意事項
 
 undocumented な Windows 内部 API を使用しているため、

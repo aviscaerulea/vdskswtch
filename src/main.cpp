@@ -1,5 +1,6 @@
 // vim: set ft=cpp fenc=utf-8 ff=unix sw=4 ts=4 et :
 #include "virtual_desktop.hpp"
+#include "config.hpp"
 #include <cstdio>
 #include <cstring>
 
@@ -29,7 +30,7 @@ static void print_usage()
 //
 // 指定した名前の仮想デスクトップに切り替える。
 // 存在しない場合は作成してから切り替える。
-static int cmd_switch(const wchar_t* name)
+static int cmd_switch(const wchar_t* name, const Config& cfg)
 {
     IVirtualDesktopManagerInternal* pManager = nullptr;
     HRESULT hr = InitVirtualDesktopManager(&pManager);
@@ -76,6 +77,8 @@ static int cmd_switch(const wchar_t* name)
         }
     }
 
+    ExecCommands(cfg.pre_exec);
+
     hr = SwitchToDesktop(pManager, pTarget);
     pTarget->Release();
 
@@ -89,6 +92,9 @@ static int cmd_switch(const wchar_t* name)
     else {
         printf("デスクトップ \"%ls\" に切り替えました。\n", name);
     }
+
+    ExecCommands(cfg.post_exec);
+
     return cleanup(0);
 }
 
@@ -96,7 +102,8 @@ static int cmd_switch(const wchar_t* name)
 //
 // 指定した名前の仮想デスクトップを削除する。
 // 削除後はメインデスクトップ（最初のデスクトップ）に移動する。
-static int cmd_close(const wchar_t* name)
+// close_exec はデスクトップ存在確認後、削除前に実行する。
+static int cmd_close(const wchar_t* name, const Config& cfg)
 {
     IVirtualDesktopManagerInternal* pManager = nullptr;
     HRESULT hr = InitVirtualDesktopManager(&pManager);
@@ -104,34 +111,54 @@ static int cmd_close(const wchar_t* name)
         return 1;
     }
 
-    hr = RemoveDesktopByName(pManager, name);
-    pManager->Release();
-    CoUninitialize();
+    auto cleanup = [&](int result) {
+        pManager->Release();
+        CoUninitialize();
+        return result;
+    };
 
+    // close_exec をデスクトップ不在時に実行しないよう事前確認する
+    IVirtualDesktop* pTarget = nullptr;
+    hr = FindDesktopByName(pManager, name, &pTarget);
     if (FAILED(hr)) {
-        return 1;
+        return cleanup(1);
+    }
+    if (!pTarget) {
+        fprintf(stderr, "デスクトップ \"%ls\" が見つかりません。\n", name);
+        return cleanup(1);
+    }
+    pTarget->Release();
+
+    ExecCommands(cfg.close_exec);
+
+    hr = RemoveDesktopByName(pManager, name);
+    if (FAILED(hr)) {
+        return cleanup(1);
     }
     printf("デスクトップ \"%ls\" を削除しました。\n", name);
-    return 0;
+    return cleanup(0);
 }
 
 int wmain(int argc, wchar_t* argv[])
 {
     // 引数なし: switch のエイリアス
     if (argc < 2) {
-        return cmd_switch(DEFAULT_DESKTOP_NAME);
+        Config cfg = LoadConfig();
+        return cmd_switch(DEFAULT_DESKTOP_NAME, cfg);
     }
 
     const wchar_t* cmd = argv[1];
 
     if (wcscmp(cmd, L"switch") == 0) {
+        Config cfg = LoadConfig();
         const wchar_t* name = (argc >= 3) ? argv[2] : DEFAULT_DESKTOP_NAME;
-        return cmd_switch(name);
+        return cmd_switch(name, cfg);
     }
 
     if (wcscmp(cmd, L"close") == 0) {
+        Config cfg = LoadConfig();
         const wchar_t* name = (argc >= 3) ? argv[2] : DEFAULT_DESKTOP_NAME;
-        return cmd_close(name);
+        return cmd_close(name, cfg);
     }
 
     if (wcscmp(cmd, L"version") == 0) {
@@ -144,7 +171,7 @@ int wmain(int argc, wchar_t* argv[])
         return 0;
     }
 
-    fprintf(stderr, "不明なコマンド: %ls\n\n", cmd);
+    fprintf(stderr, "不明なコマンドです: %ls\n\n", cmd);
     print_usage();
     return 1;
 }
