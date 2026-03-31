@@ -12,7 +12,7 @@ Windows 11 の仮想デスクトップを切り替える CLI ツール。
 
 ## インストール
 
-[Releases](https://github.com/your-repo/vdskswtch/releases) から最新の zip を取得し、
+[Releases](https://github.com/aviscaerulea/vdskswtch/releases) から最新の zip を取得し、
 `vdskswtch.exe` をパスの通ったディレクトリに配置する。
 
 ## 使い方
